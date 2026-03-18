@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>DTF Studio Pro</title>
+
+<link rel="manifest" href="manifest.json">
+
+<style>
+body{
+  font-family: Arial;
+  background:#111;
+  color:white;
+  text-align:center;
+}
+canvas{
+  border:2px solid #444;
+  margin-top:10px;
+}
+button{
+  padding:10px;
+  margin:5px;
+  background:#6a00ff;
+  color:white;
+  border:none;
+  border-radius:5px;
+}
+</style>
+</head>
+
+<body>
+
+<h2>DTF Studio Pro</h2>
+
+<input type="file" id="upload"><br>
+
+<button onclick="undo()">Deshacer</button>
+<button onclick="redo()">Rehacer</button><br>
+
+<button onclick="halftone()">Semitono</button>
+<button onclick="removeTransparency()">Eliminar transparencia</button><br>
+
+<button onclick="separateColor('r')">Rojo</button>
+<button onclick="separateColor('g')">Verde</button>
+<button onclick="separateColor('b')">Azul</button><br>
+
+<button onclick="separateCMYK('c')">Cyan</button>
+<button onclick="separateCMYK('m')">Magenta</button>
+<button onclick="separateCMYK('y')">Yellow</button>
+<button onclick="separateCMYK('k')">Negro</button><br>
+
+<button onclick="download()">Descargar PNG</button>
+<button onclick="downloadSVG()">Descargar SVG</button>
+
+<br>
+
+<canvas id="canvas" width="400" height="500"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let img = new Image();
+
+let history = [];
+let redoStack = [];
+
+function saveState(){
+  history.push(canvas.toDataURL());
+  redoStack = [];
+}
+
+function loadState(data){
+  let imgState = new Image();
+  imgState.src = data;
+  imgState.onload = ()=>{
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.drawImage(imgState,0,0,canvas.width,canvas.height);
+  }
+}
+
+function undo(){
+  if(history.length > 1){
+    redoStack.push(history.pop());
+    loadState(history[history.length - 1]);
+  }
+}
+
+function redo(){
+  if(redoStack.length > 0){
+    let state = redoStack.pop();
+    history.push(state);
+    loadState(state);
+  }
+}
+
+document.getElementById("upload").onchange = e=>{
+  const file = e.target.files[0];
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    img.src = evt.target.result;
+  }
+  reader.readAsDataURL(file);
+}
+
+img.onload = ()=>{
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  saveState();
+}
+
+function halftone(){
+  saveState();
+
+  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let data = imageData.data;
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  for(let y=0; y<canvas.height; y+=6){
+    for(let x=0; x<canvas.width; x+=6){
+      let i = (y*canvas.width + x)*4;
+      let avg = (data[i]+data[i+1]+data[i+2])/3;
+      let radius = avg/255 * 3;
+
+      ctx.fillStyle="black";
+      ctx.beginPath();
+      ctx.arc(x,y,radius,0,Math.PI*2);
+      ctx.fill();
+    }
+  }
+}
+
+function removeTransparency(){
+  saveState();
+
+  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let data = imageData.data;
+
+  for(let i=0; i<data.length; i+=4){
+    if(data[i+3] < 255){
+      data[i]=255;
+      data[i+1]=255;
+      data[i+2]=255;
+      data[i+3]=255;
+    }
+  }
+
+  ctx.putImageData(imageData,0,0);
+}
+
+function separateColor(color){
+  saveState();
+
+  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let data = imageData.data;
+
+  for(let i=0; i<data.length; i+=4){
+    if(color === 'r'){
+      data[i+1]=0;
+      data[i+2]=0;
+    }
+    if(color === 'g'){
+      data[i]=0;
+      data[i+2]=0;
+    }
+    if(color === 'b'){
+      data[i]=0;
+      data[i+1]=0;
+    }
+  }
+
+  ctx.putImageData(imageData,0,0);
+}
+
+function separateCMYK(channel){
+  saveState();
+
+  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let data = imageData.data;
+
+  for(let i=0; i<data.length; i+=4){
+
+    let r = data[i] / 255;
+    let g = data[i+1] / 255;
+    let b = data[i+2] / 255;
+
+    let k = 1 - Math.max(r, g, b);
+    let c = (1 - r - k) / (1 - k) || 0;
+    let m = (1 - g - k) / (1 - k) || 0;
+    let y = (1 - b - k) / (1 - k) || 0;
+
+    let value = 0;
+
+    if(channel === 'c') value = c;
+    if(channel === 'm') value = m;
+    if(channel === 'y') value = y;
+    if(channel === 'k') value = k;
+
+    let gray = (1 - value) * 255;
+
+    data[i] = gray;
+    data[i+1] = gray;
+    data[i+2] = gray;
+  }
+
+  ctx.putImageData(imageData,0,0);
+}
+
+function download(){
+  let link = document.createElement('a');
+  link.download = 'dtf.png';
+  link.href = canvas.toDataURL();
+  link.click();
+}
+
+function downloadSVG(){
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">`;
+
+  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let data = imageData.data;
+
+  for(let y=0; y<canvas.height; y+=6){
+    for(let x=0; x<canvas.width; x+=6){
+      let i = (y*canvas.width + x)*4;
+      let avg = (data[i]+data[i+1]+data[i+2])/3;
+      let r = avg/255 * 3;
+
+      svg += `<circle cx="${x}" cy="${y}" r="${r}" fill="black"/>`;
+    }
+  }
+
+  svg += `</svg>`;
+
+  let blob = new Blob([svg], {type:"image/svg+xml"});
+  let url = URL.createObjectURL(blob);
+
+  let link = document.createElement('a');
+  link.href = url;
+  link.download = "dtf.svg";
+  link.click();
+}
+
+// SERVICE WORKER
+if("serviceWorker" in navigator){
+  navigator.serviceWorker.register("sw.js");
+}
+</script>
+
+</body>
+</html>
