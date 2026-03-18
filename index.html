@@ -3,246 +3,201 @@
 <head>
 <meta charset="UTF-8">
 <title>DTF Studio Pro</title>
-
-<link rel="manifest" href="manifest.json">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body{
+body {
   font-family: Arial;
-  background:#111;
-  color:white;
-  text-align:center;
+  background: #111;
+  color: white;
+  text-align: center;
 }
-canvas{
-  border:2px solid #444;
-  margin-top:10px;
+canvas {
+  border: 1px solid #444;
+  margin-top: 10px;
+  max-width: 95%;
 }
-button{
-  padding:10px;
-  margin:5px;
-  background:#6a00ff;
-  color:white;
-  border:none;
-  border-radius:5px;
+button {
+  margin: 5px;
+  padding: 10px;
+  border: none;
+  background: #00c853;
+  color: white;
+  border-radius: 5px;
 }
 </style>
 </head>
 
 <body>
 
-<h2>DTF Studio Pro</h2>
+<h2>🔥 DTF Studio Pro</h2>
 
 <input type="file" id="upload"><br>
 
-<button onclick="undo()">Deshacer</button>
-<button onclick="redo()">Rehacer</button><br>
-
-<button onclick="halftone()">Semitono</button>
-<button onclick="removeTransparency()">Eliminar transparencia</button><br>
-
-<button onclick="separateColor('r')">Rojo</button>
-<button onclick="separateColor('g')">Verde</button>
-<button onclick="separateColor('b')">Azul</button><br>
-
-<button onclick="separateCMYK('c')">Cyan</button>
-<button onclick="separateCMYK('m')">Magenta</button>
-<button onclick="separateCMYK('y')">Yellow</button>
-<button onclick="separateCMYK('k')">Negro</button><br>
-
-<button onclick="download()">Descargar PNG</button>
-<button onclick="downloadSVG()">Descargar SVG</button>
+<button onclick="removeBG()">Quitar fondo</button>
+<button onclick="flip()">Voltear</button>
+<button onclick="invertColors()">Invertir colores</button>
+<button onclick="halftone()">Semitonos</button>
+<button onclick="separate()">Separar colores</button>
+<button onclick="cmyk()">CMYK</button>
+<button onclick="undo()">↩️ Deshacer</button>
+<button onclick="redo()">↪️ Rehacer</button>
+<br>
+<button onclick="downloadPNG()">Exportar PNG</button>
+<button onclick="downloadSVG()">Exportar SVG</button>
 
 <br>
-
-<canvas id="canvas" width="400" height="500"></canvas>
+<canvas id="canvas"></canvas>
 
 <script>
 const canvas = document.getElementById("canvas");
 const ctx = canvas.getContext("2d");
-let img = new Image();
 
 let history = [];
 let redoStack = [];
 
-function saveState(){
+document.getElementById("upload").addEventListener("change", e => {
+  const img = new Image();
+  img.onload = () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+    saveState();
+  };
+  img.src = URL.createObjectURL(e.target.files[0]);
+});
+
+function saveState() {
   history.push(canvas.toDataURL());
   redoStack = [];
 }
 
-function loadState(data){
-  let imgState = new Image();
-  imgState.src = data;
-  imgState.onload = ()=>{
-    ctx.clearRect(0,0,canvas.width,canvas.height);
-    ctx.drawImage(imgState,0,0,canvas.width,canvas.height);
-  }
+function restoreState(stackFrom, stackTo) {
+  if (!stackFrom.length) return;
+  stackTo.push(canvas.toDataURL());
+  const img = new Image();
+  img.onload = () => ctx.drawImage(img, 0, 0);
+  img.src = stackFrom.pop();
 }
 
-function undo(){
-  if(history.length > 1){
-    redoStack.push(history.pop());
-    loadState(history[history.length - 1]);
-  }
+function undo() {
+  restoreState(history, redoStack);
 }
 
-function redo(){
-  if(redoStack.length > 0){
-    let state = redoStack.pop();
-    history.push(state);
-    loadState(state);
-  }
+function redo() {
+  restoreState(redoStack, history);
 }
 
-document.getElementById("upload").onchange = e=>{
-  const file = e.target.files[0];
-  const reader = new FileReader();
-  reader.onload = function(evt){
-    img.src = evt.target.result;
-  }
-  reader.readAsDataURL(file);
-}
-
-img.onload = ()=>{
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+// VOLTEAR
+function flip() {
   saveState();
+  ctx.translate(canvas.width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(canvas, 0, 0);
+  ctx.setTransform(1,0,0,1,0,0);
 }
 
-function halftone(){
+// INVERTIR COLORES (BLANCO ↔ NEGRO)
+function invertColors() {
   saveState();
+  let img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let d = img.data;
 
-  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
-  let data = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let avg = (d[i] + d[i+1] + d[i+2]) / 3;
+    let val = avg > 128 ? 0 : 255;
 
-  ctx.clearRect(0,0,canvas.width,canvas.height);
+    d[i] = d[i+1] = d[i+2] = val;
+  }
 
-  for(let y=0; y<canvas.height; y+=6){
-    for(let x=0; x<canvas.width; x+=6){
-      let i = (y*canvas.width + x)*4;
-      let avg = (data[i]+data[i+1]+data[i+2])/3;
-      let radius = avg/255 * 3;
+  ctx.putImageData(img, 0, 0);
+}
+
+// SEMITONO
+function halftone() {
+  saveState();
+  let img = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let d = img.data;
+
+  for(let y=0;y<canvas.height;y+=6){
+    for(let x=0;x<canvas.width;x+=6){
+      let i=(y*canvas.width+x)*4;
+      let avg=(d[i]+d[i+1]+d[i+2])/3;
+      let size = avg/255*5;
 
       ctx.fillStyle="black";
       ctx.beginPath();
-      ctx.arc(x,y,radius,0,Math.PI*2);
+      ctx.arc(x,y,size,0,Math.PI*2);
       ctx.fill();
     }
   }
 }
 
-function removeTransparency(){
+// SEPARACIÓN SIMPLE
+function separate() {
   saveState();
+  let img = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let d = img.data;
 
-  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
-  let data = imageData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let avg = (d[i] + d[i+1] + d[i+2]) / 3;
+    let val = avg > 128 ? 255 : 0;
+    d[i] = d[i+1] = d[i+2] = val;
+  }
 
-  for(let i=0; i<data.length; i+=4){
-    if(data[i+3] < 255){
-      data[i]=255;
-      data[i+1]=255;
-      data[i+2]=255;
-      data[i+3]=255;
+  ctx.putImageData(img,0,0);
+}
+
+// CMYK SIMULADO
+function cmyk() {
+  saveState();
+  let img = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let d = img.data;
+
+  for (let i = 0; i < d.length; i += 4) {
+    d[i] = 255 - d[i];     // C
+    d[i+1] = 255 - d[i+1]; // M
+    d[i+2] = 255 - d[i+2]; // Y
+  }
+
+  ctx.putImageData(img,0,0);
+}
+
+// QUITAR FONDO SIMPLE
+function removeBG() {
+  saveState();
+  let img = ctx.getImageData(0,0,canvas.width,canvas.height);
+  let d = img.data;
+
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] > 200 && d[i+1] > 200 && d[i+2] > 200) {
+      d[i+3] = 0;
     }
   }
 
-  ctx.putImageData(imageData,0,0);
+  ctx.putImageData(img,0,0);
 }
 
-function separateColor(color){
-  saveState();
-
-  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
-  let data = imageData.data;
-
-  for(let i=0; i<data.length; i+=4){
-    if(color === 'r'){
-      data[i+1]=0;
-      data[i+2]=0;
-    }
-    if(color === 'g'){
-      data[i]=0;
-      data[i+2]=0;
-    }
-    if(color === 'b'){
-      data[i]=0;
-      data[i+1]=0;
-    }
-  }
-
-  ctx.putImageData(imageData,0,0);
-}
-
-function separateCMYK(channel){
-  saveState();
-
-  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
-  let data = imageData.data;
-
-  for(let i=0; i<data.length; i+=4){
-
-    let r = data[i] / 255;
-    let g = data[i+1] / 255;
-    let b = data[i+2] / 255;
-
-    let k = 1 - Math.max(r, g, b);
-    let c = (1 - r - k) / (1 - k) || 0;
-    let m = (1 - g - k) / (1 - k) || 0;
-    let y = (1 - b - k) / (1 - k) || 0;
-
-    let value = 0;
-
-    if(channel === 'c') value = c;
-    if(channel === 'm') value = m;
-    if(channel === 'y') value = y;
-    if(channel === 'k') value = k;
-
-    let gray = (1 - value) * 255;
-
-    data[i] = gray;
-    data[i+1] = gray;
-    data[i+2] = gray;
-  }
-
-  ctx.putImageData(imageData,0,0);
-}
-
-function download(){
-  let link = document.createElement('a');
-  link.download = 'dtf.png';
+// EXPORTAR PNG
+function downloadPNG() {
+  let link = document.createElement("a");
+  link.download = "dtf.png";
   link.href = canvas.toDataURL();
   link.click();
 }
 
-function downloadSVG(){
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">`;
+// EXPORTAR SVG (BÁSICO)
+function downloadSVG() {
+  let svg = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">
+    <image href="${canvas.toDataURL()}" width="100%" height="100%"/>
+  </svg>`;
 
-  let imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
-  let data = imageData.data;
-
-  for(let y=0; y<canvas.height; y+=6){
-    for(let x=0; x<canvas.width; x+=6){
-      let i = (y*canvas.width + x)*4;
-      let avg = (data[i]+data[i+1]+data[i+2])/3;
-      let r = avg/255 * 3;
-
-      svg += `<circle cx="${x}" cy="${y}" r="${r}" fill="black"/>`;
-    }
-  }
-
-  svg += `</svg>`;
-
-  let blob = new Blob([svg], {type:"image/svg+xml"});
-  let url = URL.createObjectURL(blob);
-
-  let link = document.createElement('a');
-  link.href = url;
+  let blob = new Blob([svg], {type: "image/svg+xml"});
+  let link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
   link.download = "dtf.svg";
   link.click();
-}
-
-// SERVICE WORKER
-if("serviceWorker" in navigator){
-  navigator.serviceWorker.register("sw.js");
 }
 </script>
 
